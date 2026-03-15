@@ -1,0 +1,122 @@
+require('dotenv').config();
+const express = require('express');
+const axios = require('axios');
+const NodeCache = require('node-cache');
+const compression = require('compression');
+const cors = require('cors');
+const { rateLimit } = require('express-rate-limit');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// ─── CLOUD CACHE (In-Memory) ────────────────────────────────────────────────
+// stdTTL is in seconds (1 hour = 3600)
+const cache = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
+
+// ─── CONFIGURATION ──────────────────────────────────────────────────────────
+app.set('trust proxy', 1);
+app.use(cors());
+app.use(compression());
+app.use(express.json());
+
+// ─── CIRCUIT BREAKER ────────────────────────────────────────────────────────
+let failureCount = 0;
+let circuitOpen = false;
+const MAX_FAILURES = 5;
+const RESET_TIMEOUT = 30000;
+
+function checkCircuit(res) {
+    if (circuitOpen) {
+        return res.status(503).json({ error: "Service temporarily unavailable" });
+    }
+}
+
+function handleFailure() {
+    failureCount++;
+    if (failureCount >= MAX_FAILURES) {
+        circuitOpen = true;
+        setTimeout(() => { circuitOpen = false; failureCount = 0; }, RESET_TIMEOUT);
+    }
+}
+
+// ─── RATE LIMITING ──────────────────────────────────────────────────────────
+const limiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 30,
+    message: { error: "Too many requests" }
+});
+app.use('/api/', limiter);
+
+// ─── ROUTES ──────────────────────────────────────────────────────────────────
+
+app.get('/health', (req, res) => {
+    res.json({ status: "ONLINE", source: "Cloud Proxy (Vercel Ready)" });
+});
+
+// 1. Google Places Proxy
+app.post('/api/google/places', async (req, res) => {
+    if (checkCircuit(res)) return;
+    const cacheKey = `places:${JSON.stringify(req.body)}`;
+
+    const cached = cache.get(cacheKey);
+    if (cached) return res.json(cached);
+
+    try {
+        const response = await axios.post('https://places.googleapis.com/v1/places:searchNearby', req.body, {
+            headers: {
+                'X-Goog-Api-Key': process.env.GOOGLE_API_KEY,
+                'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.photos'
+            }
+        });
+        cache.set(cacheKey, response.data);
+        res.json(response.data);
+    } catch (error) {
+        handleFailure();
+        res.status(500).json({ error: "Places API Error" });
+    }
+});
+
+// 2. Google Routes Proxy
+app.post('/api/google/routes', async (req, res) => {
+    if (checkCircuit(res)) return;
+    const cacheKey = `routes:${JSON.stringify(req.body)}`;
+
+    const cached = cache.get(cacheKey);
+    if (cached) return res.json(cached);
+
+    try {
+        const response = await axios.post('https://routes.googleapis.com/directions/v2:computeRoutes', req.body, {
+            headers: {
+                'X-Goog-Api-Key': process.env.GOOGLE_API_KEY,
+                'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline'
+            }
+        });
+        cache.set(cacheKey, response.data, 86400); // 24hr cache for routes
+        res.json(response.data);
+    } catch (error) {
+        handleFailure();
+        res.status(500).json({ error: "Routes API Error" });
+    }
+});
+
+// 3. OpenWeather Proxy
+app.get('/api/weather', async (req, res) => {
+    const { lat, lon } = req.query;
+    const cacheKey = `weather:${lat}:${lon}`;
+
+    const cached = cache.get(cacheKey);
+    if (cached) return res.json(cached);
+
+    try {
+        const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${process.env.OPENWEATHER_API_KEY}&units=metric`;
+        const response = await axios.get(url);
+        cache.set(cacheKey, response.data, 1800);
+        res.json(response.data);
+    } catch (error) {
+        res.status(500).json({ error: "Weather API Error" });
+    }
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Cloud Proxy ready on port ${PORT}`);
+});

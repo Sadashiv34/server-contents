@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  proxy:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - GOOGLE_API_KEY=AIzaSyD_rDZS2mRVdlHrOwTqxcKSMbvgwBZ2CoA
+      - OPENWEATHER_API_KEY=0993096071f0084478f7e28c467a8459
+    depends_on:
+      - redis
+    restart: always
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: always
+
+volumes:
+  redis_data:
