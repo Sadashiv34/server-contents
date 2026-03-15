@@ -49,6 +49,13 @@ app.use('/api/', limiter);
 
 // ─── ROUTES ──────────────────────────────────────────────────────────────────
 
+app.get('/', (req, res) => {
+    res.json({ 
+        message: "InstantSpot Cloud Proxy is ACTIVE", 
+        endpoints: ["/health", "/api/google/places", "/api/weather"] 
+    });
+});
+
 app.get('/health', (req, res) => {
     res.json({ status: "ONLINE", source: "Cloud Proxy (Vercel Ready)" });
 });
