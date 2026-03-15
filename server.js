@@ -62,6 +62,10 @@ app.post('/api/google/places', async (req, res) => {
     if (cached) return res.json(cached);
 
     try {
+        if (!process.env.GOOGLE_API_KEY) {
+            return res.status(500).json({ error: "Backend Configuration Error: GOOGLE_API_KEY is missing on server" });
+        }
+
         const response = await axios.post('https://places.googleapis.com/v1/places:searchNearby', req.body, {
             headers: {
                 'X-Goog-Api-Key': process.env.GOOGLE_API_KEY,
@@ -72,7 +76,12 @@ app.post('/api/google/places', async (req, res) => {
         res.json(response.data);
     } catch (error) {
         handleFailure();
-        res.status(500).json({ error: "Places API Error" });
+        const status = error.response?.status || 500;
+        const message = error.response?.data || error.message;
+        res.status(status).json({ 
+            error: "Google Places API Failure", 
+            details: message 
+        });
     }
 });
 
@@ -108,12 +117,20 @@ app.get('/api/weather', async (req, res) => {
     if (cached) return res.json(cached);
 
     try {
+        if (!process.env.OPENWEATHER_API_KEY) {
+            return res.status(500).json({ error: "Backend Configuration Error: OPENWEATHER_API_KEY is missing on server" });
+        }
+
         const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${process.env.OPENWEATHER_API_KEY}&units=metric`;
         const response = await axios.get(url);
         cache.set(cacheKey, response.data, 1800);
         res.json(response.data);
     } catch (error) {
-        res.status(500).json({ error: "Weather API Error" });
+        const status = error.response?.status || 500;
+        res.status(status).json({ 
+            error: "Weather API Failure", 
+            details: error.response?.data || error.message 
+        });
     }
 });
 
