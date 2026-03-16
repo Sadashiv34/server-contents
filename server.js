@@ -128,16 +128,56 @@ app.get('/api/weather', async (req, res) => {
             return res.status(500).json({ error: "Backend Configuration Error: OPENWEATHER_API_KEY is missing on server" });
         }
 
-        const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${process.env.OPENWEATHER_API_KEY}&units=metric`;
+        const url = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${process.env.OPENWEATHER_API_KEY}&units=metric`;
+        console.log(`Fetching Weather Forecast for ${lat}, ${lon}`);
         const response = await axios.get(url);
         cache.set(cacheKey, response.data, 1800);
         res.json(response.data);
     } catch (error) {
         const status = error.response?.status || 500;
+        console.error(`Weather API Error [${status}]:`, error.response?.data || error.message);
         res.status(status).json({ 
             error: "Weather API Failure", 
             details: error.response?.data || error.message 
         });
+    }
+});
+
+// 4. Google Photo Proxy (Binary)
+app.get('/api/google/photo', async (req, res) => {
+    const { name } = req.query; // format: places/{place_id}/photos/{photo_reference}
+    if (!name) return res.status(400).json({ error: "Missing photo name" });
+
+    const cacheKey = `photo:${name}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+        res.set('Content-Type', 'image/jpeg');
+        return res.send(Buffer.from(cached, 'base64'));
+    }
+
+    try {
+        if (!process.env.GOOGLE_API_KEY) {
+            return res.status(500).send("GOOGLE_API_KEY missing");
+        }
+
+        const url = `https://places.googleapis.com/v1/${name}/media`;
+        const response = await axios.get(url, {
+            params: {
+                key: process.env.GOOGLE_API_KEY,
+                maxWidthPx: 800
+            },
+            responseType: 'arraybuffer'
+        });
+
+        // Cache binary as base64 string
+        cache.set(cacheKey, Buffer.from(response.data).toString('base64'), 86400); // 24h
+
+        res.set('Content-Type', response.headers['content-type'] || 'image/jpeg');
+        res.send(response.data);
+    } catch (error) {
+        const status = error.response?.status || 500;
+        console.error(`Photo API Error [${status}]:`, error.response?.data || error.message);
+        res.status(status).send("Failed to load photo");
     }
 });
 
