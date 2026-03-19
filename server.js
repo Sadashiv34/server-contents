@@ -241,12 +241,9 @@ app.post('/api/google/gemini', async (req, res) => {
     }
 
     try {
-        // Use environment variable for security
-        console.log("Key exists in env:", !!process.env.OPENROUTER_API_KEY);
-        console.log("Key length in env:", process.env.OPENROUTER_API_KEY?.length);
-        
         const openRouterKey = process.env.OPENROUTER_API_KEY || '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';
-        const url = 'https://openrouter.ai/api/v1/chat/completions';
+
+        const url = `https://openrouter.ai/api/v1/chat/completions`;
         
         const prompt = `You are a world-class travel guide and historian. Generate a fascinating, accurate guide for the spot: "${name}" located at "${address}".
         Provide the response in EXPLICIT JSON format with exactly these keys:
@@ -265,23 +262,21 @@ app.post('/api/google/gemini', async (req, res) => {
         }, {
             headers: { 
                 'Authorization': `Bearer ${openRouterKey}`,
-                'HTTP-Referer': 'https://instantspot.example.com', // For OpenRouter rankings
-                'X-Title': 'InstantSpot App',
                 'Content-Type': 'application/json' 
             },
-            timeout: 20000 // 20s timeout for OpenRouter routing
+            timeout: 15000 // 15s timeout
         });
 
-        if (!response.data?.choices?.[0]?.message?.content) {
-            throw new Error("Empty or malformed response from OpenRouter");
+        const resultText = response.data.choices?.[0]?.message?.content;
+        if (!resultText) {
+            throw new Error("Empty or malformed response from OpenRouter API");
         }
 
-        const resultText = response.data.choices[0].message.content;
         let resultJson;
         try {
             resultJson = JSON.parse(resultText);
         } catch (parseError) {
-            console.error("Failed to parse AI JSON:", resultText);
+            console.error("Failed to parse OpenRouter JSON:", resultText);
             throw new Error("AI returned invalid JSON format. Raw output: " + resultText.substring(0, 100));
         }
         
@@ -291,8 +286,9 @@ app.post('/api/google/gemini', async (req, res) => {
         const status = error.response?.status || 500;
         const errorData = error.response?.data || error.message;
         
-        console.error(`AI Proxy Error [${status}]:`, JSON.stringify(errorData));
+        console.error(`OpenRouter Proxy Error [${status}]:`, JSON.stringify(errorData));
         
+        // Return structured error so Android can explain it
         res.status(status).json({ 
             error: "AI Service Error", 
             statusCode: status,
