@@ -242,6 +242,9 @@ app.post('/api/google/gemini', async (req, res) => {
 
     try {
         // Use environment variable for security
+        console.log("Key exists in env:", !!process.env.OPENROUTER_API_KEY);
+        console.log("Key length in env:", process.env.OPENROUTER_API_KEY?.length);
+        
         const openRouterKey = process.env.OPENROUTER_API_KEY || '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';
         const url = 'https://openrouter.ai/api/v1/chat/completions';
         
