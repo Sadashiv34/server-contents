@@ -262,21 +262,37 @@ app.post('/api/google/gemini', async (req, res) => {
                 responseMimeType: "application/json"
             }
         }, {
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 15000 // 15s timeout
         });
 
+        if (!response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+            throw new Error("Empty or malformed response from Gemini API");
+        }
+
         const resultText = response.data.candidates[0].content.parts[0].text;
-        const resultJson = JSON.parse(resultText);
+        let resultJson;
+        try {
+            resultJson = JSON.parse(resultText);
+        } catch (parseError) {
+            console.error("Failed to parse Gemini JSON:", resultText);
+            throw new Error("AI returned invalid JSON format. Raw output: " + resultText.substring(0, 100));
+        }
         
         cache.set(cacheKey, resultJson, 86400); // 24h cache
         res.json(resultJson);
     } catch (error) {
         const status = error.response?.status || 500;
         const errorData = error.response?.data || error.message;
-        console.error(`Gemini API Error [${status}]:`, errorData);
-        res.status(500).json({ 
-            error: "AI Service unavailable", 
-            details: typeof errorData === 'object' ? JSON.stringify(errorData) : errorData 
+        
+        console.error(`Gemini Proxy Error [${status}]:`, JSON.stringify(errorData));
+        
+        // Return structured error so Android can explain it
+        res.status(status).json({ 
+            error: "AI Service Error", 
+            statusCode: status,
+            details: errorData,
+            message: error.message
         });
     }
 });
