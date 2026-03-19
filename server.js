@@ -241,8 +241,8 @@ app.post('/api/google/gemini', async (req, res) => {
     }
 
     try {
-        // Switch to OpenRouter for multi-model flexibility
-        const openRouterKey = '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';
+        // Use environment variable for security
+        const openRouterKey = process.env.OPENROUTER_API_KEY || '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';
         const url = 'https://openrouter.ai/api/v1/chat/completions';
         
         const prompt = `You are a world-class travel guide and historian. Generate a fascinating, accurate guide for the spot: "${name}" located at "${address}".
