@@ -256,12 +256,14 @@ app.post('/api/google/gemini', async (req, res) => {
         REPLY ONLY WITH JSON. No markdown backticks.`;
 
         const response = await axios.post(url, {
-            model: "google/gemini-2.5-flash",
+            model: "google/gemma-3n-e4b-it:free",
             messages: [{ role: "user", content: prompt }],
             response_format: { type: "json_object" }
         }, {
             headers: { 
                 'Authorization': `Bearer ${openRouterKey}`,
+                'HTTP-Referer': 'https://instantspot.app', // Required by OpenRouter for auth
+                'X-Title': 'Instantspot App',
                 'Content-Type': 'application/json' 
             },
             timeout: 15000 // 15s timeout
