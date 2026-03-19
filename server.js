@@ -50,9 +50,9 @@ app.use('/api/', limiter);
 // ─── ROUTES ──────────────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => {
-    res.json({ 
-        message: "InstantSpot Cloud Proxy is ACTIVE", 
-        endpoints: ["/health", "/api/google/places", "/api/weather"] 
+    res.json({
+        message: "InstantSpot Cloud Proxy is ACTIVE",
+        endpoints: ["/health", "/api/google/places", "/api/weather"]
     });
 });
 
@@ -70,7 +70,7 @@ app.post('/api/google/places', async (req, res) => {
         center.longitude = Math.round(center.longitude * 10000) / 10000;
     }
     const cacheKey = `places:${JSON.stringify(quantizedBody)}`;
-    
+
     const cached = cache.get(cacheKey);
     if (cached) {
         console.log(`[CACHE HIT] Google Places for ${cacheKey}`);
@@ -94,9 +94,9 @@ app.post('/api/google/places', async (req, res) => {
         handleFailure();
         const status = error.response?.status || 500;
         const message = error.response?.data || error.message;
-        res.status(status).json({ 
-            error: "Google Places API Failure", 
-            details: message 
+        res.status(status).json({
+            error: "Google Places API Failure",
+            details: message
         });
     }
 });
@@ -148,9 +148,9 @@ app.get('/api/weather', async (req, res) => {
     } catch (error) {
         const status = error.response?.status || 500;
         console.error(`Weather API Error [${status}]:`, error.response?.data || error.message);
-        res.status(status).json({ 
-            error: "Weather API Failure", 
-            details: error.response?.data || error.message 
+        res.status(status).json({
+            error: "Weather API Failure",
+            details: error.response?.data || error.message
         });
     }
 });
@@ -218,7 +218,7 @@ app.get('/api/google/roads', async (req, res) => {
                 key: process.env.GOOGLE_API_KEY
             }
         });
-        
+
         cache.set(cacheKey, response.data, 86400); // 24h cache
         res.json(response.data);
     } catch (error) {
@@ -242,9 +242,9 @@ app.post('/api/google/gemini', async (req, res) => {
 
     try {
         const geminiKey = process.env.GOOGLE_GEMINI_API_KEY || 'AIzaSyAqjiMpTrRKtfI1xm_snxYC3nzMjMrKryk';
-        
-        // Using gemini-1.5-flash for speed and structured output
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+
+        // Using gemini-2.5-flash as specified in the technical requirement
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
         
         const prompt = `You are a world-class travel guide and historian. Generate a fascinating, accurate guide for the spot: "${name}" located at "${address}".
         Provide the response in EXPLICIT JSON format with exactly these keys:
@@ -261,6 +261,8 @@ app.post('/api/google/gemini', async (req, res) => {
             generationConfig: {
                 responseMimeType: "application/json"
             }
+        }, {
+            headers: { 'Content-Type': 'application/json' }
         });
 
         const resultText = response.data.candidates[0].content.parts[0].text;
@@ -269,8 +271,13 @@ app.post('/api/google/gemini', async (req, res) => {
         cache.set(cacheKey, resultJson, 86400); // 24h cache
         res.json(resultJson);
     } catch (error) {
-        console.error(`Gemini API Error:`, error.response?.data || error.message);
-        res.status(500).json({ error: "AI Service unavailable", details: error.message });
+        const status = error.response?.status || 500;
+        const errorData = error.response?.data || error.message;
+        console.error(`Gemini API Error [${status}]:`, errorData);
+        res.status(500).json({ 
+            error: "AI Service unavailable", 
+            details: typeof errorData === 'object' ? JSON.stringify(errorData) : errorData 
+        });
     }
 });
 
