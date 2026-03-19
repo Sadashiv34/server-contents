@@ -241,7 +241,7 @@ app.post('/api/google/gemini', async (req, res) => {
     }
 
     try {
-        const geminiKey = process.env.GOOGLE_GEMINI_API_KEY || 'AIzaSyAqjiMpTrRKtfI1xm_snxYC3nzMjMrKryk';
+        const geminiKey = process.env.GOOGLE_GEMINI_API_KEY || 'AIzaSyBe5RDrePU9m87pQLo2njUVOUHdAlpCXDY';
 
         // Using gemini-2.5-flash as specified in the technical requirement
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
