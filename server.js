@@ -241,10 +241,9 @@ app.post('/api/google/gemini', async (req, res) => {
     }
 
     try {
-        const geminiKey = process.env.GOOGLE_GEMINI_API_KEY || 'AIzaSyBe5RDrePU9m87pQLo2njUVOUHdAlpCXDY';
-
-        // Using gemini-2.5-flash as specified in the technical requirement
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+        // Switch to OpenRouter for multi-model flexibility
+        const openRouterKey = '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';
+        const url = 'https://openrouter.ai/api/v1/chat/completions';
         
         const prompt = `You are a world-class travel guide and historian. Generate a fascinating, accurate guide for the spot: "${name}" located at "${address}".
         Provide the response in EXPLICIT JSON format with exactly these keys:
@@ -257,25 +256,29 @@ app.post('/api/google/gemini', async (req, res) => {
         REPLY ONLY WITH JSON. No markdown backticks.`;
 
         const response = await axios.post(url, {
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-                responseMimeType: "application/json"
-            }
+            model: "google/gemini-2.5-flash",
+            messages: [{ role: "user", content: prompt }],
+            response_format: { type: "json_object" }
         }, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 15000 // 15s timeout
+            headers: { 
+                'Authorization': `Bearer ${openRouterKey}`,
+                'HTTP-Referer': 'https://instantspot.example.com', // For OpenRouter rankings
+                'X-Title': 'InstantSpot App',
+                'Content-Type': 'application/json' 
+            },
+            timeout: 20000 // 20s timeout for OpenRouter routing
         });
 
-        if (!response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-            throw new Error("Empty or malformed response from Gemini API");
+        if (!response.data?.choices?.[0]?.message?.content) {
+            throw new Error("Empty or malformed response from OpenRouter");
         }
 
-        const resultText = response.data.candidates[0].content.parts[0].text;
+        const resultText = response.data.choices[0].message.content;
         let resultJson;
         try {
             resultJson = JSON.parse(resultText);
         } catch (parseError) {
-            console.error("Failed to parse Gemini JSON:", resultText);
+            console.error("Failed to parse AI JSON:", resultText);
             throw new Error("AI returned invalid JSON format. Raw output: " + resultText.substring(0, 100));
         }
         
@@ -285,9 +288,8 @@ app.post('/api/google/gemini', async (req, res) => {
         const status = error.response?.status || 500;
         const errorData = error.response?.data || error.message;
         
-        console.error(`Gemini Proxy Error [${status}]:`, JSON.stringify(errorData));
+        console.error(`AI Proxy Error [${status}]:`, JSON.stringify(errorData));
         
-        // Return structured error so Android can explain it
         res.status(status).json({ 
             error: "AI Service Error", 
             statusCode: status,
