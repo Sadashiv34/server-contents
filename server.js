@@ -62,11 +62,20 @@ app.get('/health', (req, res) => {
 
 // 1. Google Places Proxy
 app.post('/api/google/places', async (req, res) => {
-    if (checkCircuit(res)) return;
-    const cacheKey = `places:${JSON.stringify(req.body)}`;
-
+    // Quantize coordinates to 4 decimal places (~11m) to stabilize cache keys despite GPS jitter
+    const quantizedBody = JSON.parse(JSON.stringify(req.body));
+    if (quantizedBody.locationRestriction?.circle?.center) {
+        const center = quantizedBody.locationRestriction.circle.center;
+        center.latitude = Math.round(center.latitude * 10000) / 10000;
+        center.longitude = Math.round(center.longitude * 10000) / 10000;
+    }
+    const cacheKey = `places:${JSON.stringify(quantizedBody)}`;
+    
     const cached = cache.get(cacheKey);
-    if (cached) return res.json(cached);
+    if (cached) {
+        console.log(`[CACHE HIT] Google Places for ${cacheKey}`);
+        return res.json(cached);
+    }
 
     try {
         if (!process.env.GOOGLE_API_KEY) {
@@ -117,8 +126,11 @@ app.post('/api/google/routes', async (req, res) => {
 
 // 3. OpenWeather Proxy
 app.get('/api/weather', async (req, res) => {
-    const { lat, lon } = req.query;
-    const cacheKey = `weather:${lat}:${lon}`;
+    let { lat, lon } = req.query;
+    // Round to 3 decimal places (~110m) for weather - weather doesn't change much locally
+    const qLat = Math.round(parseFloat(lat) * 1000) / 1000;
+    const qLon = Math.round(parseFloat(lon) * 1000) / 1000;
+    const cacheKey = `weather:${qLat}:${qLon}`;
 
     const cached = cache.get(cacheKey);
     if (cached) return res.json(cached);
@@ -178,6 +190,87 @@ app.get('/api/google/photo', async (req, res) => {
         const status = error.response?.status || 500;
         console.error(`Photo API Error [${status}]:`, error.response?.data || error.message);
         res.status(status).send("Failed to load photo");
+    }
+});
+
+// 5. Google Roads Proxy (Snap to Roads)
+app.get('/api/google/roads', async (req, res) => {
+    const { path } = req.query; // format: "lat,lon|lat,lon"
+    if (!path) return res.status(400).json({ error: "Missing path parameter" });
+
+    const cacheKey = `roads:${path}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+        console.log(`[CACHE HIT] Google Roads for ${path}`);
+        return res.json(cached);
+    }
+
+    try {
+        if (!process.env.GOOGLE_API_KEY) {
+            return res.status(500).json({ error: "GOOGLE_API_KEY missing on server" });
+        }
+
+        const url = `https://roads.googleapis.com/v1/snapToRoads`;
+        const response = await axios.get(url, {
+            params: {
+                path: path,
+                interpolate: true,
+                key: process.env.GOOGLE_API_KEY
+            }
+        });
+        
+        cache.set(cacheKey, response.data, 86400); // 24h cache
+        res.json(response.data);
+    } catch (error) {
+        const status = error.response?.status || 500;
+        console.error(`Roads API Error [${status}]:`, error.response?.data || error.message);
+        res.status(status).json({ error: "Roads API Failure", details: error.response?.data || error.message });
+    }
+});
+
+// 6. Gemini AI Spot Guide Proxy
+app.post('/api/google/gemini', async (req, res) => {
+    const { name, address } = req.body;
+    if (!name) return res.status(400).json({ error: "Missing place name" });
+
+    const cacheKey = `gemini:${name}:${address || ''}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+        console.log(`[CACHE HIT] Gemini Guide for ${name}`);
+        return res.json(cached);
+    }
+
+    try {
+        const geminiKey = process.env.GOOGLE_GEMINI_API_KEY || 'AIzaSyAqjiMpTrRKtfI1xm_snxYC3nzMjMrKryk';
+        
+        // Using gemini-1.5-flash for speed and structured output
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+        
+        const prompt = `You are a world-class travel guide and historian. Generate a fascinating, accurate guide for the spot: "${name}" located at "${address}".
+        Provide the response in EXPLICIT JSON format with exactly these keys:
+        - "summary": A 1-sentence poetic overview of the spot.
+        - "history": A 2-3 sentence deep dive into its historical origin.
+        - "builder": Who built it or its architectural style (1 sentence).
+        - "purpose": Why it was originally created (1 sentence).
+        - "fun_fact": A surprising "Did you know?" style fact.
+        
+        REPLY ONLY WITH JSON. No markdown backticks.`;
+
+        const response = await axios.post(url, {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+                responseMimeType: "application/json"
+            }
+        });
+
+        const resultText = response.data.candidates[0].content.parts[0].text;
+        const resultJson = JSON.parse(resultText);
+        
+        cache.set(cacheKey, resultJson, 86400); // 24h cache
+        res.json(resultJson);
+    } catch (error) {
+        console.error(`Gemini API Error:`, error.response?.data || error.message);
+        res.status(500).json({ error: "AI Service unavailable", details: error.message });
     }
 });
 
