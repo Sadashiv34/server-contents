@@ -282,11 +282,45 @@ app.post('/api/google/gemini', async (req, res) => {
     } catch (error) {
         const status = error.response?.status || 500;
         console.error(`Gemini API Error [${status}]:`, error.response?.data || error.message);
-        res.status(status).json({
-            error: "Gemini AI Service Error",
+        res.status(status).json({ 
+            error: "Gemini AI Service Error", 
             statusCode: status,
             message: error.message
         });
+    }
+});
+
+// --- GOOGLE PLACE DETAILS PROXY (For Reviews) ---
+app.get("/api/google/place-details", async (req, res) => {
+    const { googleId } = req.query;
+    if (!googleId) return res.status(400).json({ error: "googleId is required" });
+
+    const cacheKey = `details_${googleId}`;
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) return res.json(cachedData);
+
+    try {
+        if (!process.env.GOOGLE_API_KEY) {
+            return res.status(500).json({ error: "GOOGLE_API_KEY missing" });
+        }
+
+        // Using Places API (New) V1
+        const url = `https://places.googleapis.com/v1/places/${googleId}?fields=rating,reviews,userRatingCount,displayName&key=${process.env.GOOGLE_API_KEY}`;
+        
+        const response = await axios.get(url);
+        
+        // Transform/Limit to top 5 reviews
+        const data = response.data;
+        if (data.reviews) {
+            data.reviews = data.reviews.slice(0, 5);
+        }
+
+        cache.set(cacheKey, data, 86400 * 7); // Cache for 7 days
+        res.json(data);
+    } catch (error) {
+        const status = error.response?.status || 500;
+        console.error("Place Details Error:", error.response?.data || error.message);
+        res.status(status).json({ error: "Failed to fetch place details" });
     }
 });
 
