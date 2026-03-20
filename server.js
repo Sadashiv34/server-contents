@@ -228,77 +228,8 @@ app.get('/api/google/roads', async (req, res) => {
     }
 });
 
-// 6. Gemini AI Spot Guide Proxy
-app.post('/api/google/gemini', async (req, res) => {
-    const { name, address } = req.body;
-    if (!name) return res.status(400).json({ error: "Missing place name" });
-
-    const cacheKey = `gemini:${name}:${address || ''}`;
-    const cached = cache.get(cacheKey);
-    if (cached) {
-        console.log(`[CACHE HIT] Gemini Guide for ${name}`);
-        return res.json(cached);
-    }
-
-    try {
-        const openRouterKey = process.env.OPENROUTER_API_KEY || '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';
-
-        const url = `https://openrouter.ai/api/v1/chat/completions`;
-        
-        const prompt = `You are a world-class travel guide and historian. Generate a fascinating, accurate guide for the spot: "${name}" located at "${address}".
-        Provide the response in EXPLICIT JSON format with exactly these keys:
-        - "summary": A 1-sentence poetic overview of the spot.
-        - "history": A 2-3 sentence deep dive into its historical origin.
-        - "builder": Who built it or its architectural style (1 sentence).
-        - "purpose": Why it was originally created (1 sentence).
-        - "fun_fact": A surprising "Did you know?" style fact.
-        
-        REPLY ONLY WITH JSON. No markdown backticks.`;
-
-        const response = await axios.post(url, {
-            model: "google/gemma-3n-e4b-it:free",
-            messages: [{ role: "user", content: prompt }],
-            response_format: { type: "json_object" }
-        }, {
-            headers: { 
-                'Authorization': `Bearer ${openRouterKey}`,
-                'HTTP-Referer': 'https://instantspot.app', // Required by OpenRouter for auth
-                'X-Title': 'Instantspot App',
-                'Content-Type': 'application/json' 
-            },
-            timeout: 15000 // 15s timeout
-        });
-
-        const resultText = response.data.choices?.[0]?.message?.content;
-        if (!resultText) {
-            throw new Error("Empty or malformed response from OpenRouter API");
-        }
-
-        let resultJson;
-        try {
-            resultJson = JSON.parse(resultText);
-        } catch (parseError) {
-            console.error("Failed to parse OpenRouter JSON:", resultText);
-            throw new Error("AI returned invalid JSON format. Raw output: " + resultText.substring(0, 100));
-        }
-        
-        cache.set(cacheKey, resultJson, 86400); // 24h cache
-        res.json(resultJson);
-    } catch (error) {
-        const status = error.response?.status || 500;
-        const errorData = error.response?.data || error.message;
-        
-        console.error(`OpenRouter Proxy Error [${status}]:`, JSON.stringify(errorData));
-        
-        // Return structured error so Android can explain it
-        res.status(status).json({ 
-            error: "AI Service Error", 
-            statusCode: status,
-            details: errorData,
-            message: error.message
-        });
-    }
-});
+// Gemini AI Spot Guide Proxy (DEPRECATED - Moved to direct Android SDK integration)
+// app.post('/api/google/gemini', ...);
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Cloud Proxy ready on port ${PORT}`);
