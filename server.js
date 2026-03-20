@@ -228,8 +228,67 @@ app.get('/api/google/roads', async (req, res) => {
     }
 });
 
-// Gemini AI Spot Guide Proxy (DEPRECATED - Moved to direct Android SDK integration)
-// app.post('/api/google/gemini', ...);
+// 6. Gemini AI Spot Guide Proxy
+app.post('/api/google/gemini', async (req, res) => {
+    const { name, address } = req.body;
+    if (!name) return res.status(400).json({ error: "Missing place name" });
+
+    const cacheKey = `gemini:${name}:${address || ''}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+        console.log(`[CACHE HIT] Gemini Guide for ${name}`);
+        return res.json(cached);
+    }
+
+    try {
+        if (!process.env.GOOGLE_API_KEY) {
+            return res.status(500).json({ error: "GOOGLE_API_KEY missing on server" });
+        }
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`;
+        
+        const prompt = `You are a world-class travel guide and historian. Generate a fascinating, accurate guide for the spot: "${name}" located at "${address}".
+        Provide the response in EXPLICIT JSON format with exactly these keys:
+        - "summary": A 1-sentence poetic overview of the spot.
+        - "history": A 2-3 sentence deep dive into its historical origin.
+        - "builder": Who built it or its architectural style (1 sentence).
+        - "purpose": Why it was originally created (1 sentence).
+        - "fun_fact": A surprising "Did you know?" style fact.
+        
+        REPLY ONLY WITH JSON. No markdown backticks.`;
+
+        const response = await axios.post(url, {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+                responseMimeType: "application/json"
+            }
+        });
+
+        const resultText = response.data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!resultText) {
+            throw new Error("Empty response from Gemini API");
+        }
+
+        let resultJson;
+        try {
+            resultJson = JSON.parse(resultText);
+        } catch (parseError) {
+            console.error("Failed to parse Gemini JSON:", resultText);
+            throw new Error("AI returned invalid JSON format.");
+        }
+        
+        cache.set(cacheKey, resultJson, 86400); // 24h server cache
+        res.json(resultJson);
+    } catch (error) {
+        const status = error.response?.status || 500;
+        console.error(`Gemini API Error [${status}]:`, error.response?.data || error.message);
+        res.status(status).json({ 
+            error: "Gemini AI Service Error", 
+            statusCode: status,
+            message: error.message
+        });
+    }
+});
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Cloud Proxy ready on port ${PORT}`);
