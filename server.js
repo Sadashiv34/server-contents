@@ -245,8 +245,8 @@ app.post('/api/google/gemini', async (req, res) => {
             return res.status(500).json({ error: "GOOGLE_API_KEY missing on server" });
         }
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`;
-        
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`;
+
         const prompt = `You are a world-class travel guide and historian. Generate a fascinating, accurate guide for the spot: "${name}" located at "${address}".
         Provide the response in EXPLICIT JSON format with exactly these keys:
         - "summary": A 1-sentence poetic overview of the spot.
@@ -276,14 +276,14 @@ app.post('/api/google/gemini', async (req, res) => {
             console.error("Failed to parse Gemini JSON:", resultText);
             throw new Error("AI returned invalid JSON format.");
         }
-        
-        cache.set(cacheKey, resultJson, 86400); // 24h server cache
+
+        cache.set(cacheKey, resultJson, 1814400); // 504h server cache
         res.json(resultJson);
     } catch (error) {
         const status = error.response?.status || 500;
         console.error(`Gemini API Error [${status}]:`, error.response?.data || error.message);
-        res.status(status).json({ 
-            error: "Gemini AI Service Error", 
+        res.status(status).json({
+            error: "Gemini AI Service Error",
             statusCode: status,
             message: error.message
         });
