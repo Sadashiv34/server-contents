@@ -45,19 +45,34 @@ function shortKey(prefix, data) {
     return `${prefix}:${hash}`;
 }
 
-// ─── TWO-LAYER GET/SET ────────────────────────────────────────────────────────
+// ─── TWO-LAYER GET/SET (FAIL-OPEN) ──────────────────────────────────────────
 async function cacheGet(key) {
-    const hit = l1Get(key);
-    if (hit !== null) return hit;
-    const val = await redis.get(key);
-    if (val !== null) l1Set(key, val);
-    return val;
+    try {
+        const hit = l1Get(key);
+        if (hit !== null) return hit;
+        
+        // Upstash REST calls have a default timeout, but we catch any connectivity issues
+        const val = await redis.get(key);
+        if (val !== null) {
+            l1Set(key, val);
+            return val;
+        }
+    } catch (e) {
+        console.error(`[CACHE ERROR] Get failed for ${key}:`, e.message);
+        // Fail open: return null so caller proceeds to real API
+    }
+    return null;
 }
 
 async function cacheSet(key, value, ttlSeconds) {
-    l1Set(key, value);
-    // Redis EX = seconds TTL
-    await redis.set(key, value, { ex: ttlSeconds });
+    try {
+        l1Set(key, value);
+        // Redis EX = seconds TTL
+        await redis.set(key, value, { ex: ttlSeconds });
+    } catch (e) {
+        console.error(`[CACHE ERROR] Set failed for ${key}:`, e.message);
+        // Fail open: just don't cache
+    }
 }
 
 // ─── CIRCUIT BREAKER ──────────────────────────────────────────────────────────
@@ -130,7 +145,10 @@ app.post('/api/google/places', async (req, res) => {
     }
 
     try {
-        if (!process.env.GOOGLE_API_KEY) return res.status(500).json({ error: 'GOOGLE_API_KEY missing' });
+        if (!process.env.GOOGLE_API_KEY) {
+            console.error('[CONFIG ERROR] GOOGLE_API_KEY missing');
+            return res.status(500).json({ error: 'Server Configuration: API Key Missing' });
+        }
 
         const { data } = await axios.post(
             'https://places.googleapis.com/v1/places:searchNearby',
@@ -144,7 +162,10 @@ app.post('/api/google/places', async (req, res) => {
         res.json(data);
     } catch (e) {
         handleFailure();
-        res.status(e.response?.status || 500).json({ error: 'Google Places API Failure', details: e.response?.data || e.message });
+        const status = e.response?.status || 500;
+        const detail = e.response?.data?.error?.message || e.message;
+        console.error(`[PLACES API ERROR] ${status}:`, detail);
+        res.status(status).json({ error: 'Google Places API Failure', message: detail });
     }
 });
 
@@ -185,7 +206,10 @@ app.get('/api/weather', async (req, res) => {
     if (cached) return res.json(typeof cached === 'string' ? JSON.parse(cached) : cached);
 
     try {
-        if (!process.env.OPENWEATHER_API_KEY) return res.status(500).json({ error: 'OPENWEATHER_API_KEY missing' });
+        if (!process.env.OPENWEATHER_API_KEY) {
+            console.error('[CONFIG ERROR] OPENWEATHER_API_KEY missing');
+            return res.status(500).json({ error: 'Server Configuration: Weather API Key Missing' });
+        }
 
         const { data } = await axios.get(
             `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${process.env.OPENWEATHER_API_KEY}&units=metric`
@@ -196,7 +220,9 @@ app.get('/api/weather', async (req, res) => {
         res.json(data);
     } catch (e) {
         const status = e.response?.status || 500;
-        res.status(status).json({ error: 'Weather API Failure', details: e.response?.data || e.message });
+        const detail = e.response?.data?.message || e.message;
+        console.error(`[WEATHER API ERROR] ${status}:`, detail);
+        res.status(status).json({ error: 'Weather API Failure', message: detail });
     }
 });
 
@@ -236,7 +262,10 @@ app.get('/api/google/roads', async (req, res) => {
     }
 
     try {
-        if (!process.env.GOOGLE_API_KEY) return res.status(500).json({ error: 'GOOGLE_API_KEY missing' });
+        if (!process.env.GOOGLE_API_KEY) {
+            console.error('[CONFIG ERROR] GOOGLE_API_KEY missing');
+            return res.status(500).json({ error: 'Server Configuration: API Key Missing' });
+        }
 
         const { data } = await axios.get('https://roads.googleapis.com/v1/snapToRoads', {
             params: { path, interpolate: true, key: process.env.GOOGLE_API_KEY }
@@ -244,7 +273,10 @@ app.get('/api/google/roads', async (req, res) => {
         await cacheSet(key, JSON.stringify(data), TTL.ROADS);
         res.json(data);
     } catch (e) {
-        res.status(e.response?.status || 500).json({ error: 'Roads API Failure', details: e.response?.data || e.message });
+        const status = e.response?.status || 500;
+        const detail = e.message;
+        console.error(`[ROADS API ERROR] ${status}:`, detail);
+        res.status(status).json({ error: 'Roads API Failure', message: detail });
     }
 });
 
@@ -261,7 +293,10 @@ app.post('/api/google/gemini', async (req, res) => {
     }
 
     try {
-        if (!process.env.GOOGLE_API_KEY) return res.status(500).json({ error: 'GOOGLE_API_KEY missing' });
+        if (!process.env.GOOGLE_API_KEY) {
+            console.error('[CONFIG ERROR] GOOGLE_API_KEY (LLM) missing');
+            return res.status(500).json({ error: 'Server Configuration: AI API Key Missing' });
+        }
 
         const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`;
         const prompt = `You are a world-class travel guide and historian. Generate a fascinating, accurate guide for the spot: "${name}" located at "${address}".
@@ -286,8 +321,9 @@ app.post('/api/google/gemini', async (req, res) => {
         res.json(resultJson);
     } catch (e) {
         const status = e.response?.status || 500;
-        console.error(`Gemini API Error:`, e.response?.data || e.message);
-        res.status(status).json({ error: 'Gemini AI Service Error', message: e.message });
+        const detail = e.response?.data?.error?.message || e.message;
+        console.error(`[GEMINI API ERROR] ${status}:`, detail);
+        res.status(status).json({ error: 'Gemini AI Service Error', message: detail });
     }
 });
 
@@ -304,7 +340,10 @@ app.get('/api/google/place-details', async (req, res) => {
     }
 
     try {
-        if (!process.env.GOOGLE_API_KEY) return res.status(500).json({ error: 'GOOGLE_API_KEY missing' });
+        if (!process.env.GOOGLE_API_KEY) {
+            console.error('[CONFIG ERROR] GOOGLE_API_KEY missing');
+            return res.status(500).json({ error: 'Server Configuration: API Key Missing' });
+        }
 
         const url = `https://places.googleapis.com/v1/places/${googleId}?fields=rating,reviews,userRatingCount,displayName&key=${process.env.GOOGLE_API_KEY}`;
         const { data } = await axios.get(url);
@@ -323,8 +362,9 @@ app.get('/api/google/place-details', async (req, res) => {
         res.json(data);
     } catch (e) {
         const status = e.response?.status || 500;
-        console.error('Place Details Error:', e.response?.data || e.message);
-        res.status(status).json({ error: 'Failed to fetch place details' });
+        const detail = e.response?.data?.error?.message || e.message;
+        console.error(`[PLACE DETAILS ERROR] ${status}:`, detail);
+        res.status(status).json({ error: 'Failed to fetch place details', message: detail });
     }
 });
 
