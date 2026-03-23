@@ -236,30 +236,32 @@ app.get('/api/google/routes', async (req, res) => {
         const cached = await cacheGet(key);
         if (cached) return res.json(typeof cached === 'string' ? JSON.parse(cached) : cached);
 
-        if (!process.env.GOOGLE_API_KEY) {
-            return res.status(200).json({ routes: [], error: 'key_missing' });
-        }
+        const apiKey = process.env.GOOGLE_API_KEY || 'AIzaSyD_rDZS2mRVdlHrOwTqxcKSMbvgwBZ2CoA';
+
+        // Map BIKE to TWO_WHEELER if coming from Android as BIKE
+        const mode = (travelMode === 'BIKE') ? 'TWO_WHEELER' : (travelMode || 'DRIVE');
 
         const body = {
             origin: { location: { latLng: { latitude: parseFloat(originLat), longitude: parseFloat(originLon) } } },
             destination: { location: { latLng: { latitude: parseFloat(destLat), longitude: parseFloat(destLon) } } },
-            travelMode: travelMode || 'DRIVE',
+            travelMode: mode,
             routingPreference: routingPreference || 'TRAFFIC_AWARE'
         };
 
+        // Note: Routes API (New) endpoint is v1:computeRoutes
         const { data } = await axios.post(
-            'https://routes.googleapis.com/v1/computeRoutes',
+            'https://routes.googleapis.com/v1:computeRoutes',
             body,
             { headers: {
-                'X-Goog-Api-Key': process.env.GOOGLE_API_KEY,
-                'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline'
-            }, timeout: 8000 }
+                'X-Goog-Api-Key': apiKey,
+                'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline'
+            }, timeout: 10000 }
         );
 
         await cacheSet(key, JSON.stringify(data), TTL.ROUTES);
         res.json(data);
     } catch (e) {
-        console.error('[ROUTES ERROR]:', e.message);
+        console.error('[ROUTES ERROR]:', e.response?.data || e.message);
         res.status(200).json({ routes: [], error: 'api_failed', details: e.message });
     }
 });
@@ -269,9 +271,10 @@ app.get('/api/google/photo', async (req, res) => {
     try {
         const { name } = req.query;
         if (!name) return res.status(200).json({ error: 'no_name' });
-        if (!process.env.GOOGLE_API_KEY) return res.status(200).json({ error: 'key_missing' });
+        const apiKey = process.env.GOOGLE_API_KEY || 'AIzaSyD_rDZS2mRVdlHrOwTqxcKSMbvgwBZ2CoA';
 
-        const url = `https://places.googleapis.com/v1/${name}/media?key=${process.env.GOOGLE_API_KEY}&maxWidthPx=1000`;
+        // Use the new Places API Media endpoint
+        const url = `https://places.googleapis.com/v1/${name}/media?key=${apiKey}&maxWidthPx=1200&maxHeightPx=1200`;
         console.log(`[PHOTO] Proxying ${name}`);
         res.redirect(url);
     } catch (e) {
