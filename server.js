@@ -23,7 +23,7 @@ try {
     const { Redis } = require('@upstash/redis');
     redis = new Redis({
         url: process.env.REDIS_URL || 'https://intimate-midge-79639.upstash.io',
-        token: process.env.REDIS_TOKEN || 'gQAAAAAAATcXAAIncDE5ZTEyNGM2OTg1ZDA0M2RlYjVhMDFmN2ZkNzkyYjAyY3AxNzk2Mzk',
+        token: process.env.REDIS_TOKEN || 'gQAAAAAAATcXAAIncDFiMzdjYzUwYWRlMTI0ZGM1YWIyODQ2ZGNkZTQ4YmRhNHAxNzk2Mzk',
     });
     console.log('✅ Redis library loaded and initialized');
 } catch (e) {
