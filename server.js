@@ -314,6 +314,72 @@ app.get('/api/weather', async (req, res) => {
     }
 });
 
+// 4. NVIDIA NIM AI (Spot Guide)
+// Why: OpenAI compatible endpoint. We keep the URL name "gemini" for Android compatibility.
+app.post('/api/google/gemini', async (req, res) => {
+    try {
+        const { name, address } = req.body;
+        if (!name) return res.status(200).json({ summary: 'No spot name provided' });
+
+        const key = shortKey('nv', { name, address });
+        const cached = await cacheGet(key);
+        if (cached) return res.json(typeof cached === 'string' ? JSON.parse(cached) : cached);
+
+        const apiKey = process.env.NVIDIA_API_KEY;
+        if (!apiKey) {
+            console.error('Missing NVIDIA_API_KEY');
+            return res.status(200).json({ error: 'ai_key_missing' });
+        }
+
+        const systemPrompt = `You are a professional historical tour guide. Generate a comprehensive guide for the location "${name}" located at "${address}". 
+Return ONLY a JSON object with exactly these fields:
+"summary": A 2-sentence captivating overview of the spot.
+"history": The origin and background of the place.
+"builder": Who built it, when, and their significance.
+"purpose": Why it was built and its historical/modern use.
+"fun_fact": A unique, lesser-known interesting trivia point.
+DO NOT include markdown formatting or extra text. Output plain JSON.`;
+
+        const { data } = await axios.post(
+            'https://integrate.api.nvidia.com/v1/chat/completions',
+            {
+                model: 'openai/gpt-oss-120b',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: `Generate guide for: ${name}` }
+                ],
+                temperature: 0.2,
+                top_p: 0.7,
+                max_tokens: 1024
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 15000
+            }
+        );
+
+        const aiContent = data.choices[0].message.content;
+        let finalJson;
+        try {
+            // Clean up possible markdown debris if model ignores system prompt
+            const cleaned = aiContent.replace(/```json/g, '').replace(/```/g, '').trim();
+            finalJson = JSON.parse(cleaned);
+        } catch (parseError) {
+            console.error('NVIDIA AI Parse Error:', aiContent);
+            return res.status(200).json({ error: 'ai_format_error', raw: aiContent });
+        }
+
+        await cacheSet(key, JSON.stringify(finalJson), TTL.GEMINI); // TTL: 21 days
+        res.json(finalJson);
+    } catch (e) {
+        console.error('[NVIDIA AI ERROR]:', e.response?.data || e.message);
+        res.status(200).json({ error: 'ai_failed', message: e.message });
+    }
+});
+
 // ─── BOOT ────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => res.json({ status: 'ACTIVE', redis: !!redis, firebase: !!db }));
 app.get('/health', (req, res) => res.json({ status: 'OK', redis: !!redis, firebase: !!db }));
