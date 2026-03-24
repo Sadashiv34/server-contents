@@ -1,4 +1,6 @@
 require('dotenv').config();
+const cluster = require('node:cluster');
+const process = require('node:process');
 const express = require('express');
 const axios = require('axios');
 const compression = require('compression');
@@ -6,8 +8,25 @@ const cors = require('cors');
 const { rateLimit } = require('express-rate-limit');
 const crypto = require('crypto');
 
-const app = express();
 const PORT = process.env.PORT || 3000;
+
+if (cluster.isPrimary) {
+    console.log(`🚀 Load Balancer: Primary process ${process.pid} is running`);
+    
+    // User Request: 3 servers (worker instances)
+    const numWorkers = 3;
+    for (let i = 0; i < numWorkers; i++) {
+        cluster.fork();
+    }
+
+    cluster.on('exit', (worker, code, signal) => {
+        console.warn(`⚠️  Worker ${worker.process.pid} died (code: ${code}, signal: ${signal}). Spinning up a replacement...`);
+        cluster.fork();
+    });
+} else {
+    // WORKER PROCESS: Run the actual server logic
+    console.log(`⚙️  Worker process ${process.pid} started`);
+    const app = express();
 
 // ─── GLOBAL ERROR HANDLERS (CRITICAL) ────────────────────────────────────────
 process.on('uncaughtException', (err) => {
@@ -394,5 +413,6 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Safety Server listening on port ${PORT}`);
+    console.log(`🚀 [Worker ${process.pid}] Safety Server listening on port ${PORT}`);
 });
+}
