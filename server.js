@@ -248,9 +248,9 @@ app.get('/api/google/routes', async (req, res) => {
             routingPreference: routingPreference || 'TRAFFIC_AWARE'
         };
 
-        // Note: Routes API (New) endpoint is v1:computeRoutes
+        // Note: Routes API (New) endpoint is directions/v2:computeRoutes
         const { data } = await axios.post(
-            'https://routes.googleapis.com/v1:computeRoutes',
+            'https://routes.googleapis.com/directions/v2:computeRoutes',
             body,
             { headers: {
                 'X-Goog-Api-Key': apiKey,
