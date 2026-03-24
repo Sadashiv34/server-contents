@@ -315,8 +315,8 @@ app.get('/api/weather', async (req, res) => {
 });
 
 // 4. NVIDIA NIM AI (Spot Guide)
-// Why: OpenAI compatible endpoint. We keep the URL name "gemini" for Android compatibility.
-app.post('/api/google/gemini', async (req, res) => {
+// Why: OpenAI compatible endpoint. We keep the URL name "ai/guide" for Android compatibility.
+app.post('/api/ai/guide', async (req, res) => {
     try {
         const { name, address } = req.body;
         if (!name) return res.status(200).json({ summary: 'No spot name provided' });
